@@ -53,10 +53,10 @@ async fn find_customer(acetics: &Acetics) -> Result<Option<Customer>> {
         let search = Text::new("Rechercher un client:").prompt()?;
 
         if search.is_empty() {
-            let retry = Confirm::new("Ne pas associer de client ?")
+            let retry = Confirm::new("Passer la recherche client ?")
                 .with_default(true)
                 .prompt()?;
-            if retry {
+            if !retry {
                 continue;
             }
         }
