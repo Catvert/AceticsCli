@@ -1,14 +1,28 @@
 use std::fmt::Display;
 
-use chrono::{Duration, Local, NaiveDateTime};
-use reqwest::{Error, Method, Response};
-use serde::{Deserialize, Serialize};
+use chrono::Local;
 use config::Config;
+use reqwest::{Error, Method};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Staff {
+    pub id: i32,
+    pub name: String,
+}
+
+impl Display for Staff {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} [{}]", self.name, self.id)
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct AceticsConfig {
     pub endpoint: String,
     pub token: String,
+    pub default_staff_index: usize,
+    pub staffs: Vec<Staff>,
 }
 
 pub struct Acetics {
@@ -49,6 +63,18 @@ impl Acetics {
             .await?
             .json()
             .await
+    }
+
+    pub fn staffs(&self) -> &[Staff] {
+        &self.config.staffs
+    }
+
+    pub fn default_staff_index(&self) -> usize {
+        self.config.default_staff_index
+    }
+
+    pub fn is_default_staff(&self, staff: &Staff) -> bool {
+        staff.id == self.config.staffs[self.config.default_staff_index].id
     }
 }
 
@@ -147,6 +173,11 @@ impl Task {
 
     pub fn with_estimated_time(mut self, estimated_time: Option<String>) -> Self {
         self.estimated_time = estimated_time;
+        self
+    }
+
+    pub fn with_assigned_staff(mut self, staff: Staff) -> Self {
+        self.fk_assigned_staff = Some(staff.id);
         self
     }
 }

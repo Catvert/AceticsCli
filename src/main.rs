@@ -2,31 +2,30 @@ mod acetics;
 
 use chrono::{Duration, Local, NaiveDate, Timelike};
 use inquire::{
-    formatter::DEFAULT_DATE_FORMATTER, ui::{Color, RenderConfig, Styled}, Confirm, CustomType, Editor, Select, SelectPromptAction, Text
+    formatter::DEFAULT_DATE_FORMATTER,
+    ui::{Color, RenderConfig, Styled},
+    validator::Validation,
+    Confirm, CustomType, Editor, Select, Text,
 };
 
-use acetics::{Acetics, Task, TaskStatus, TaskType};
+use acetics::{Acetics, Staff, Task, TaskStatus, TaskType};
 use reqwest::Method;
-use std::ops::Add;
+use std::{ffi::OsStr, io::Write, ops::Add};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    clear_terminal();
+
     let acetics = Acetics::load_config()?;
 
     create_call_task_menu(&acetics).await?;
 
-    // let ans = Confirm::new("Do you live in Brazil?")
-    //     .with_default(false)
-    //     .with_help_message("This data is stored for good reasons")
-    //     .prompt();
-    //
-    // match ans {
-    //     Ok(true) => println!("That's awesome!"),
-    //     Ok(false) => println!("That's too bad, I've heard great things about it."),
-    //     Err(_) => println!("Error with questionnaire, try again later"),
-    // }
-
     Ok(())
+}
+
+fn clear_terminal() {
+    print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
+    std::io::stdout().flush().unwrap();
 }
 
 fn description_render_config() -> RenderConfig<'static> {
@@ -39,6 +38,14 @@ fn format_duration_to_hhmm(duration: Duration) -> String {
     let hours = total_minutes / 60;
     let minutes = total_minutes % 60;
     format!("{:02}:{:02}", hours, minutes)
+}
+
+fn staff_select(acetics: &Acetics, prompt: &str, default: Option<usize>) -> Result<Staff, Box<dyn std::error::Error>> {
+    let staff: Staff = Select::new(prompt, acetics.staffs().to_vec())
+        .with_vim_mode(true)
+        .with_starting_cursor(default.unwrap_or(0))
+        .prompt()?;
+    Ok(staff)
 }
 
 async fn create_call_task_menu(acetics: &Acetics) -> Result<(), Box<dyn std::error::Error>> {
@@ -59,10 +66,20 @@ async fn create_call_task_menu(acetics: &Acetics) -> Result<(), Box<dyn std::err
                 substr
             }
         })
+        .with_file_extension(".md")
+        .with_editor_command(OsStr::new("nvim"))
         .with_render_config(description_render_config())
         .prompt()?;
 
-    let title = Text::new("Titre:").prompt()?;
+    let title = Text::new("Titre:")
+        .with_validator(|i: &str| {
+            if i.is_empty() {
+                Ok(Validation::Invalid("Le champ est obligatoire".into()))
+            } else {
+                Ok(Validation::Valid)
+            }
+        })
+        .prompt()?;
 
     let end_time = Text::new("Nouvelle tâche - heure de fin:")
         .with_default(&Local::now().format("%H:%M").to_string())
@@ -70,44 +87,51 @@ async fn create_call_task_menu(acetics: &Acetics) -> Result<(), Box<dyn std::err
     let work_time =
         end_time.parse::<chrono::NaiveTime>()? - start_time.parse::<chrono::NaiveTime>()?;
 
+    let staff: Staff = staff_select(&acetics, "Assigner à:", Some(acetics.default_staff_index()))?;
+
     let status: TaskStatus =
-        Select::new("Statut:", vec![TaskStatus::Closed, TaskStatus::Ongoing]).prompt()?;
+        Select::new("Statut:", vec![TaskStatus::Closed, TaskStatus::Ongoing]).with_starting_cursor(if acetics.is_default_staff(&staff) { 0 } else { 1 }).prompt()?;
 
     let due_date = if let TaskStatus::Closed = status {
         Local::now().naive_local()
     } else {
         let date: NaiveDate = CustomType::<NaiveDate>::new("Date d'échéance:")
             .with_placeholder("dd/mm/yyyy")
+            .with_starting_input(&Local::now().naive_local().format("%d/%m/%Y").to_string())
             .with_parser(&|i| NaiveDate::parse_from_str(i, "%d/%m/%Y").map_err(|_e| ()))
             .with_formatter(DEFAULT_DATE_FORMATTER)
             .with_error_message("Please type a valid date.")
-            .with_default(Local::now().naive_local().into())
             .prompt()?;
 
-        let time = Text::new("Heure d'échéance:").with_default(&Local::now().add(Duration::hours(1)).format("%H:%M").to_string()).prompt()?;
+        let time = Text::new("Heure d'échéance:")
+            .with_default(
+                &Local::now()
+                    .add(Duration::hours(1))
+                    .format("%H:%M")
+                    .to_string(),
+            )
+            .prompt()?;
         let time = time.parse::<chrono::NaiveTime>()?;
         date.and_hms_opt(time.hour(), time.minute(), 0).unwrap()
     };
 
-    let task = Task::new(TaskType::CustomerCall, title, description)
-        .with_work_time(Some(format_duration_to_hhmm(work_time)))
-        .with_due_date(due_date)
-        .with_status(status);
+    let confirm = Confirm::new("Voulez-vous enregistrer la tâche ?")
+        .with_default(true)
+        .prompt()?;
 
-    let res = acetics
-        .json_request::<Task, serde_json::Value>(Method::POST, "tasks/create", &task)
-        .await?;
+    if confirm {
+        let task = Task::new(TaskType::CustomerCall, title, description)
+            .with_assigned_staff(staff)
+            .with_work_time(Some(format_duration_to_hhmm(work_time)))
+            .with_due_date(due_date)
+            .with_status(status);
 
-    println!("{:?}", res);
+        let res = acetics
+            .json_request::<Task, serde_json::Value>(Method::POST, "tasks/create", &task)
+            .await?;
+
+        println!("{:?}", res);
+    }
 
     Ok(())
 }
-
-// async fn get_request(config: &Settings) -> Result<(), Box<dyn std::error::Error>> {
-//     let client = reqwest::Client::new();
-//     let response = client
-//         .get(config.acetics_endpoint.clone() + "/api/v1/users")
-//         .header("Authorization", "Bearer 1234567890")
-//         .send()
-//         .await?;
-// }

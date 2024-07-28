@@ -1,0 +1,6 @@
+endpoint = "http://<tenant>.localhost/api"
+token = "<token>"
+default_staff_index = 0
+
+[Staffs]
+Test = 1
