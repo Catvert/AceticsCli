@@ -8,9 +8,10 @@ use inquire::{
     Confirm, CustomType, Editor, Select, Text,
 };
 
-use acetics::{Acetics, Staff, Task, TaskStatus, TaskType};
+use acetics::{Acetics, Customer, Staff, Task, TaskStatus, TaskType};
 use reqwest::Method;
 use std::{ffi::OsStr, io::Write, ops::Add};
+use serde_json::json;
 
 use anyhow::Result;
 
@@ -20,7 +21,12 @@ async fn main() -> Result<()> {
 
     let acetics = Acetics::load_config()?;
 
-    create_call_task_menu(&acetics).await?;
+    match create_call_task_menu(&acetics).await {
+        Ok(_) => {}
+        Err(e) => {
+            Confirm::new(&format!("Erreur : {}", e)).prompt()?;
+        }
+    }
 
     Ok(())
 }
@@ -40,6 +46,41 @@ fn format_duration_to_hhmm(duration: Duration) -> String {
     let hours = total_minutes / 60;
     let minutes = total_minutes % 60;
     format!("{:02}:{:02}", hours, minutes)
+}
+
+async fn find_customer(acetics: &Acetics) -> Result<Option<Customer>> {
+    loop {
+        let search = Text::new("Rechercher un client:").prompt()?;
+
+        if search.is_empty() {
+            let retry = Confirm::new("Ne pas associer de client ?")
+                .with_default(true)
+                .prompt()?;
+            if retry {
+                continue;
+            }
+        }
+
+        let customers: Vec<Customer> = acetics
+            .json_request(Method::POST, "tasks/findMatchedCustomers", &json!({ "search": search }))
+            .await?;
+
+        let res = Select::new("Clients:", customers.to_vec())
+            .with_vim_mode(true)
+            .prompt_skippable()?;
+
+        match res {
+            Some(customer) => return Ok(Some(customer)),
+            None => {
+                let retry = Confirm::new("Aucun client trouvé. Re chercher à nouveau ?")
+                    .with_default(true)
+                    .prompt()?;
+                if !retry {
+                    return Ok(None);
+                }
+            }
+        }
+    }
 }
 
 fn staff_select(acetics: &Acetics, prompt: &str, default: Option<usize>) -> Result<Staff> {
@@ -89,10 +130,17 @@ async fn create_call_task_menu(acetics: &Acetics) -> Result<()> {
     let work_time =
         end_time.parse::<chrono::NaiveTime>()? - start_time.parse::<chrono::NaiveTime>()?;
 
+    let customer: Option<Customer> = find_customer(&acetics).await?;
+
     let staff: Staff = staff_select(&acetics, "Assigner à:", Some(acetics.default_staff_index()))?;
 
-    let status: TaskStatus =
-        Select::new("Statut:", vec![TaskStatus::Closed, TaskStatus::Ongoing]).with_starting_cursor(if acetics.is_default_staff(&staff) { 0 } else { 1 }).prompt()?;
+    let status: TaskStatus = Select::new("Statut:", vec![TaskStatus::Closed, TaskStatus::Ongoing])
+        .with_starting_cursor(if acetics.is_default_staff(&staff) {
+            0
+        } else {
+            1
+        })
+        .prompt()?;
 
     let due_date = if let TaskStatus::Closed = status {
         Local::now().naive_local()
@@ -126,6 +174,7 @@ async fn create_call_task_menu(acetics: &Acetics) -> Result<()> {
             .with_assigned_staff(staff)
             .with_work_time(Some(format_duration_to_hhmm(work_time)))
             .with_due_date(due_date)
+            .with_customer(customer)
             .with_status(status);
 
         let res = acetics

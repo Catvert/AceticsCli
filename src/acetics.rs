@@ -20,6 +20,20 @@ impl Display for Staff {
     }
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct Customer {
+    pub id: i32,
+    pub nom: String,
+    pub name2: String,
+    pub prospect: bool
+}
+
+impl Display for Customer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} [{}]", self.nom, self.name2, if self.prospect { "Prospect" } else { "Client" })
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AceticsConfig {
     pub endpoint: String,
@@ -211,6 +225,15 @@ impl Task {
 
     pub fn with_assigned_staff(mut self, staff: Staff) -> Self {
         self.fk_assigned_staff = Some(staff.id);
+        self
+    }
+
+    pub fn with_customer(mut self, customer: Option<Customer>) -> Self {
+        if let Some(customer) = customer {
+            self.fk_customer = Some(customer.id);
+        } else {
+            self.fk_customer = None;
+        }
         self
     }
 }
