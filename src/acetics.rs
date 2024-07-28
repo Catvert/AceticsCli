@@ -47,7 +47,7 @@ impl Acetics {
 
         let settings = Config::builder()
             .add_source(config::File::from(config_path.clone()))
-            .add_source(config::File::with_name("config.toml"))
+            // .add_source(config::File::with_name("config.toml"))
             .add_source(config::Environment::with_prefix("ACETICS"))
             .build();
 
