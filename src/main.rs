@@ -12,8 +12,10 @@ use acetics::{Acetics, Staff, Task, TaskStatus, TaskType};
 use reqwest::Method;
 use std::{ffi::OsStr, io::Write, ops::Add};
 
+use anyhow::Result;
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     clear_terminal();
 
     let acetics = Acetics::load_config()?;
@@ -40,7 +42,7 @@ fn format_duration_to_hhmm(duration: Duration) -> String {
     format!("{:02}:{:02}", hours, minutes)
 }
 
-fn staff_select(acetics: &Acetics, prompt: &str, default: Option<usize>) -> Result<Staff, Box<dyn std::error::Error>> {
+fn staff_select(acetics: &Acetics, prompt: &str, default: Option<usize>) -> Result<Staff> {
     let staff: Staff = Select::new(prompt, acetics.staffs().to_vec())
         .with_vim_mode(true)
         .with_starting_cursor(default.unwrap_or(0))
@@ -48,7 +50,7 @@ fn staff_select(acetics: &Acetics, prompt: &str, default: Option<usize>) -> Resu
     Ok(staff)
 }
 
-async fn create_call_task_menu(acetics: &Acetics) -> Result<(), Box<dyn std::error::Error>> {
+async fn create_call_task_menu(acetics: &Acetics) -> Result<()> {
     let start_time = Text::new("Nouvelle tâche - heure de début:")
         .with_default(&Local::now().format("%H:%M").to_string())
         .prompt()?;

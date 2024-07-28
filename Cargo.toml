@@ -4,10 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-inquire = { version = "0.7.5", features = ["date", "macros", "editor"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.120"
+
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-chrono = { version = "0.4", features = ["serde"] }
+
 config = { version = "0.14", features = ["toml"] }
-serde_json = "1.0.120"
+dirs = "5.0"
+
+inquire = { version = "0.7.5", features = ["date", "macros", "editor"] }
+anyhow = "1.0.86"
+

@@ -1,2 +1,2 @@
-run:
-    cargo run
+dev:
+    nix develop -c cargo run 

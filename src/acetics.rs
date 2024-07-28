@@ -1,9 +1,12 @@
-use std::fmt::Display;
+use std::{fmt::Display, fs, path::PathBuf};
 
+use anyhow::{bail, Result};
 use chrono::Local;
 use config::Config;
 use reqwest::{Error, Method};
 use serde::{Deserialize, Serialize};
+
+const DEFAULT_CONFIG: &str = include_str!("../config.example.toml");
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Staff {
@@ -31,18 +34,47 @@ pub struct Acetics {
 }
 
 impl Acetics {
-    pub fn load_config() -> Result<Self, Box<dyn std::error::Error>> {
+    fn config_dir() -> PathBuf {
+        dirs::config_dir().unwrap().join("acetics-cli")
+    }
+
+    fn config_path() -> PathBuf {
+        Self::config_dir().join("config.toml")
+    }
+
+    pub fn load_config() -> Result<Self> {
+        let config_path = Self::config_path();
+
         let settings = Config::builder()
+            .add_source(config::File::from(config_path.clone()))
             .add_source(config::File::with_name("config.toml"))
             .add_source(config::Environment::with_prefix("ACETICS"))
-            .build()?;
+            .build();
 
-        let settings = settings.try_deserialize::<AceticsConfig>()?;
+        match settings {
+            Ok(settings) => {
+                let settings = settings.try_deserialize::<AceticsConfig>()?;
 
-        Ok(Self {
-            config: settings,
-            client: reqwest::Client::new(),
-        })
+                Ok(Self {
+                    config: settings,
+                    client: reqwest::Client::new(),
+                })
+            }
+            Err(e) => {
+                if config_path.exists() {
+                    Err(e.into())
+                } else {
+                    fs::create_dir_all(Self::config_dir())?;
+
+                    std::fs::write(&config_path, DEFAULT_CONFIG)?;
+
+                    bail!(
+                        "Please edit the config file at {} and restart the application",
+                        config_path.display()
+                    );
+                }
+            }
+        }
     }
 
     pub async fn json_request<T: Serialize, R: for<'de> Deserialize<'de>>(
@@ -50,10 +82,11 @@ impl Acetics {
         method: Method,
         path: &str,
         body: &T,
-    ) -> Result<R, Error> {
+    ) -> Result<R> {
         let url = format!("{}/{}", self.config.endpoint, path);
 
-        self.client
+        Ok(self
+            .client
             .request(method, url)
             .header("Authorization", format!("Bearer {}", self.config.token))
             .header("Content-Type", "application/json")
@@ -62,7 +95,7 @@ impl Acetics {
             .send()
             .await?
             .json()
-            .await
+            .await?)
     }
 
     pub fn staffs(&self) -> &[Staff] {
@@ -130,9 +163,9 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn new(taskType: TaskType, title: String, description: String) -> Self {
+    pub fn new(task_type: TaskType, title: String, description: String) -> Self {
         Self {
-            fk_type: taskType as u8,
+            fk_type: task_type as u8,
 
             fk_assigned_staff: Some(8),
             fk_assigned_group: None,
